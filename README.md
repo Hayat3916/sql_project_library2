@@ -152,9 +152,7 @@ WHERE issued_emp_id = 'E101'
 -- Objective: Use GROUP BY to find members who have issued more than one book.
 
 ```sql
-SELECT
-    issued_emp_id,
-    COUNT(*)
+SELECT issued_emp_id,COUNT(*)
 FROM issued_status
 GROUP BY 1
 HAVING COUNT(*) > 1
@@ -165,12 +163,16 @@ HAVING COUNT(*) > 1
 - **Task 6: Create Summary Tables**: Used CTAS to generate new tables based on query results - each book and total book_issued_cnt**
 
 ```sql
-CREATE TABLE book_issued_cnt AS
-SELECT b.isbn, b.book_title, COUNT(ist.issued_id) AS issue_count
-FROM issued_status as ist
-JOIN books as b
-ON ist.issued_book_isbn = b.isbn
-GROUP BY b.isbn, b.book_title;
+CREATE TABLE book_cnts
+AS
+ SELECT b.isbn,b.book_title,COUNT(i.issued_id) AS no_books_issued
+ FROM books b
+ JOIN issued_status i
+ ON i.issued_book_isbn = b.isbn
+ GROUP BY b.isbn,b.book_title
+
+ SELECT*FROM book_cnts
+
 ```
 
 
@@ -188,16 +190,11 @@ WHERE category = 'Classic';
 8. **Task 8: Find Total Rental Income by Category**:
 
 ```sql
-SELECT 
-    b.category,
-    SUM(b.rental_price),
-    COUNT(*)
-FROM 
-issued_status as ist
-JOIN
-books as b
-ON b.isbn = ist.issued_book_isbn
-GROUP BY 1
+SELECT b.category, SUM(b.rental_price) AS Total_rental_income,
+            COUNT(*)
+ FROM books b
+ JOIN issued_status i ON i.issued_book_isbn = b.isbn
+ GROUP BY b.category
 ```
 
 9. **List Members Who Registered in the Last 180 Days**:
@@ -209,20 +206,12 @@ WHERE reg_date >= CURRENT_DATE - INTERVAL '180 days';
 10. **List Employees with Their Branch Manager's Name and their branch details**:
 
 ```sql
-SELECT 
-    e1.emp_id,
-    e1.emp_name,
-    e1.position,
-    e1.salary,
-    b.*,
-    e2.emp_name as manager
-FROM employees as e1
-JOIN 
-branch as b
-ON e1.branch_id = b.branch_id    
-JOIN
-employees as e2
-ON e2.emp_id = b.manager_id
+SELECT e1.*,
+            b.manager_id,
+            e2.emp_name AS manager
+FROM employees e1
+JOIN branch b ON e1.branch_id = b.branch_id
+JOIN employees e2 ON b.manager_id = e2.emp_id
 ```
 
 Task 11. **Create a Table of Books with Rental Price Above a Certain Threshold**:
@@ -247,117 +236,71 @@ WHERE rs.return_id IS NULL;
 Write a query to identify members who have overdue books (assume a 30-day return period). Display the member's_id, member's name, book title, issue date, and days overdue.
 
 ```sql
-SELECT 
-    ist.issued_member_id,
-    m.member_name,
-    bk.book_title,
-    ist.issued_date,
-    -- rs.return_date,
-    CURRENT_DATE - ist.issued_date as over_dues_days
-FROM issued_status as ist
-JOIN 
-members as m
-    ON m.member_id = ist.issued_member_id
-JOIN 
-books as bk
-ON bk.isbn = ist.issued_book_isbn
-LEFT JOIN 
-return_status as rs
-ON rs.issued_id = ist.issued_id
-WHERE 
-    rs.return_date IS NULL
-    AND
-    (CURRENT_DATE - ist.issued_date) > 30
+SELECT i.issued_member_id,m.member_name,
+	b.book_title,i.issued_date,
+	--rs.return_date,
+	CURRENT_DATE - i.issued_date AS over_dues_days
+FROM issued_status i
+JOIN members m ON m.member_id = i.issued_member_id
+JOIN books b ON b.isbn = i.issued_book_isbn
+LEFT JOIN return_status rs ON rs.issued_id = i.issued_id
+WHERE rs.return_date IS NULL AND (CURRENT_DATE - i.issued_date)>30
 ORDER BY 1
 ```
 
 
 
-**Task 15: Branch Performance Report**  
+**Task 14: Branch Performance Report**  
 Create a query that generates a performance report for each branch, showing the number of books issued, the number of books returned, and the total revenue generated from book rentals.
 
 ```sql
 CREATE TABLE branch_reports
-AS
-SELECT 
-    b.branch_id,
-    b.manager_id,
-    COUNT(ist.issued_id) as number_book_issued,
-    COUNT(rs.return_id) as number_of_book_return,
-    SUM(bk.rental_price) as total_revenue
-FROM issued_status as ist
-JOIN 
-employees as e
-ON e.emp_id = ist.issued_emp_id
-JOIN
-branch as b
-ON e.branch_id = b.branch_id
-LEFT JOIN
-return_status as rs
-ON rs.issued_id = ist.issued_id
-JOIN 
-books as bk
-ON ist.issued_book_isbn = bk.isbn
-GROUP BY 1, 2;
+ AS
+SELECT
+	b.branch_id,b.manager_id,
+	COUNT(i.issued_id) AS number_book_issued,
+	COUNT(r.return_id) AS number_of_book_return,
+	SUM(bk.rental_price) AS total_revenue
+FROM issued_status i
+JOIN employees e ON i.issued_emp_id = e.emp_id
+JOIN branch b ON e.branch_id = b.branch_id 
+LEFT JOIN return_status r ON r.issued_id = i.issued_id
+JOIN books bk ON i.issued_book_isbn = bk.isbn
+GROUP BY b.branch_id,b.manager_id
 
-SELECT * FROM branch_reports;
+SELECT*FROM branch_reports;
 ```
 
-**Task 16: CTAS: Create a Table of Active Members**  
+**Task 15: CTAS: Create a Table of Active Members**  
 Use the CREATE TABLE AS (CTAS) statement to create a new table active_members containing members who have issued at least one book in the last 2 months.
 
 ```sql
 
 CREATE TABLE active_members
 AS
-SELECT * FROM members
-WHERE member_id IN (SELECT 
-                        DISTINCT issued_member_id   
-                    FROM issued_status
-                    WHERE 
-                        issued_date >= CURRENT_DATE - INTERVAL '2 month'
-                    )
-;
-
-SELECT * FROM active_members;
+SELECT*FROM members
+WHERE member_id IN (SELECT DISTINCT issued_member_id
+FROM issued_status
+WHERE issued_date >= CURRENT_DATE - INTERVAL '2 MONTH'
+					);
+SELECT *FROM active_members;
 
 ```
 
-**Task 17: Find Employees with the Most Book Issues Processed**  
+**Task 16: Find Employees with the Most Book Issues Processed**  
 Write a query to find the top 3 employees who have processed the most book issues. Display the employee name, number of books processed, and their branch.
 
 ```sql
 SELECT 
-    e.emp_name,
-    b.*,
-    COUNT(ist.issued_id) as no_book_issued
-FROM issued_status as ist
-JOIN
-employees as e
-ON e.emp_id = ist.issued_emp_id
-JOIN
-branch as b
-ON e.branch_id = b.branch_id
-GROUP BY 1, 2
+	e.emp_name,
+	b.*,
+	COUNT(i.issued_id) AS no_book_issued
+FROM issued_status i
+JOIN employees e ON e.emp_id = i.issued_emp_id
+JOIN branch b ON e.branch_id = b.branch_id
+GROUP BY 1,2
+
 ```
-
-**Task 18: Identify Members Issuing High-Risk Books**  
-Write a query to identify members who have issued books more than twice with the status "damaged" in the books table. Display the member name, book title, and the number of times they've issued damaged books.    
-
-
-**Task 20: Create Table As Select (CTAS)**
-Objective: Create a CTAS (Create Table As Select) query to identify overdue books and calculate fines.
-
-Description: Write a CTAS query to create a new table that lists each member and the books they have issued but not returned within 30 days. The table should include:
-    The number of overdue books.
-    The total fines, with each day's fine calculated at $0.50.
-    The number of books issued by each member.
-    The resulting table should show:
-    Member ID
-    Number of overdue books
-    Total fines
-
-
 
 ## Reports
 
